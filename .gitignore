@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+brain_data/
+*pem
+*jsonl
+cloud/session_known_hosts
+*.pub
+*.csv
+analysis/*

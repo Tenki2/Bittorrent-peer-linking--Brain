@@ -1,0 +1,140 @@
+session:
+  id: null
+  data_root: brain_data
+
+ingest:
+  bind_host: 0.0.0.0
+  port: 8000
+  destination_url: http://100.95.169.10:8000/ingest
+
+aws:
+  ssh_user: ubuntu
+  ssh_key_path: cloud/aws.pem
+  bootstrap_marker: /home/ubuntu/bootstrap.finished
+  ec2init_path: cloud/ec2init.sh
+
+docker:
+  image: ghcr.io/tenki2/btclient:dev
+  runtime_seconds: 360
+  listen_port: 51413
+  torrent_source: /opt/torrents/bigAWS.torrent
+  snapshot_interval_ms: 1000
+  victim_start_delay_seconds: 60
+  stop_adversaries_after_victim: true
+  adversary_preseed_source: /opt/preseed/big-file.bin
+  adversary_preseed_target: /app/data/big-file.bin
+
+locations:
+  ap-northeast-1:
+    provider: aws_ec2
+    aws_region: ap-northeast-1
+  ap-northeast-2:
+    provider: aws_ec2
+    aws_region: ap-northeast-2
+  ap-northeast-3:
+    provider: aws_ec2
+    aws_region: ap-northeast-3
+  ap-south-1:
+    provider: aws_ec2
+    aws_region: ap-south-1
+  ap-southeast-1:
+    provider: aws_ec2
+    aws_region: ap-southeast-1
+  ap-southeast-2:
+    provider: aws_ec2
+    aws_region: ap-southeast-2
+  ca-central-1:
+    provider: aws_ec2
+    aws_region: ca-central-1
+  eu-central-1:
+    provider: aws_ec2
+    aws_region: eu-central-1
+  eu-north-1:
+    provider: aws_ec2
+    aws_region: eu-north-1
+  eu-west-1:
+    provider: aws_ec2
+    aws_region: eu-west-1
+  eu-west-2:
+    provider: aws_ec2
+    aws_region: eu-west-2
+  eu-west-3:
+    provider: aws_ec2
+    aws_region: eu-west-3
+  sa-east-1:
+    provider: aws_ec2
+    aws_region: sa-east-1
+  us-east-1:
+    provider: aws_ec2
+    aws_region: us-east-1
+  us-east-2:
+    provider: aws_ec2
+    aws_region: us-east-2
+  us-west-1:
+    provider: aws_ec2
+    aws_region: us-west-1
+  us-west-2:
+    provider: aws_ec2
+    aws_region: us-west-2
+  residential-01:
+    provider: residential
+    ssh_host: 10.240.0.187
+  residential-02:
+    provider: residential
+    ssh_host: 100.78.93.87
+
+nodes:
+  - label: adversary-ap-northeast-1
+    location: ap-northeast-1
+    role: adversary
+  - label: adversary-ap-northeast-2
+    location: ap-northeast-2
+    role: adversary
+  - label: adversary-ap-northeast-3
+    location: ap-northeast-3
+    role: adversary
+  - label: adversary-ap-south-1
+    location: ap-south-1
+    role: adversary
+  - label: adversary-ap-southeast-1
+    location: ap-southeast-1
+    role: adversary
+  - label: adversary-ap-southeast-2
+    location: ap-southeast-2
+    role: adversary
+  - label: adversary-ca-central-1
+    location: ca-central-1
+    role: adversary
+  - label: adversary-eu-central-1
+    location: eu-central-1
+    role: adversary
+  - label: adversary-eu-west-1
+    location: eu-west-1
+    role: adversary
+  - label: adversary-eu-west-2
+    location: eu-west-2
+    role: adversary
+  - label: adversary-eu-west-3
+    location: eu-west-3
+    role: adversary
+  - label: adversary-sa-east-1
+    location: sa-east-1
+    role: adversary
+  - label: adversary-us-east-1
+    location: us-east-1
+    role: adversary
+  - label: adversary-us-east-2
+    location: us-east-2
+    role: adversary
+  - label: adversary-us-west-1
+    location: us-west-1
+    role: adversary
+  - label: adversary-us-west-2
+    location: us-west-2
+    role: adversary
+  - label: residential-01
+    location: residential-01
+    role: adversary
+  - label: residential-02
+    location: residential-02
+    role: victim
