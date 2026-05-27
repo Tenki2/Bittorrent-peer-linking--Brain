@@ -2,16 +2,13 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from datetime import datetime, timezone
-from email.message import EmailMessage
-from email.parser import BytesParser
-from email.policy import default
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Optional, cast
-from urllib.parse import urlsplit
+from typing import Any, Optional
+
+from flask import Flask, jsonify, request
+from werkzeug.serving import make_server
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -20,18 +17,7 @@ SESSIONS_ROOT = DATA_ROOT / "sessions"
 DEFAULT_HOST = os.getenv("BRAIN_HOST", "0.0.0.0")
 DEFAULT_PORT = int(os.getenv("BRAIN_PORT", "8000"))
 
-SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
-WINDOWS_RESERVED_NAMES = {
-    "CON",
-    "PRN",
-    "AUX",
-    "NUL",
-    *(f"COM{i}" for i in range(1, 10)),
-    *(f"LPT{i}" for i in range(1, 10)),
-}
-
 REQUIRED_PARTS = ("state_json", "event_log", "summary_json")
-INGEST_PATHS = {"/", "/ingest"}
 PART_TO_FILENAME = {
     "state_json": "state.json",
     "event_log": "session_events.ndjson",
@@ -99,20 +85,18 @@ def first_metadata_value(
     )
 
 
-def safe_directory_name(value: str) -> Optional[str]:
+def directory_name_or_none(value: str) -> Optional[str]:
     text = value.strip()
     if not text:
         return None
 
-    safe = SAFE_NAME_RE.sub("_", text).strip("._-")
-    safe = safe[:120].strip("._-")
-    if not safe or safe in {".", ".."}:
+    if text in {".", ".."}:
         return None
 
-    if safe.upper() in WINDOWS_RESERVED_NAMES:
-        safe = f"_{safe}"
+    if "/" in text or "\\" in text or "\x00" in text:
+        return None
 
-    return safe
+    return text
 
 
 def resolve_session_id(summary_document: Any, state_document: Any) -> tuple[str, str]:
@@ -126,10 +110,10 @@ def resolve_session_id(summary_document: Any, state_document: Any) -> tuple[str,
             "Could not determine session_id from summary_json or state_json."
         )
 
-    session_dir_name = safe_directory_name(raw_session_id)
+    session_dir_name = directory_name_or_none(raw_session_id)
     if not session_dir_name:
         raise IngestError(
-            "session_id is empty or cannot be converted into a safe directory name."
+            "session_id is empty or cannot be used as a directory name."
         )
 
     return raw_session_id, session_dir_name
@@ -145,66 +129,16 @@ def resolve_client_id(
         if not raw_value:
             continue
 
-        safe_value = safe_directory_name(raw_value)
+        safe_value = directory_name_or_none(raw_value)
         if safe_value:
             return safe_value, field_name
 
     if remote_client_ip:
-        safe_ip = safe_directory_name(remote_client_ip)
+        safe_ip = directory_name_or_none(remote_client_ip)
         if safe_ip:
             return safe_ip, "remote_client_ip"
 
     return "unknown_client", "fallback"
-
-
-def parse_multipart_upload(
-    content_type: str,
-    body: bytes,
-) -> tuple[dict[str, bytes], dict[str, Optional[str]]]:
-    if not content_type:
-        raise IngestError("Content-Type header is required.")
-
-    header_blob = (
-        f"Content-Type: {content_type}\r\n"
-        "MIME-Version: 1.0\r\n"
-        "\r\n"
-    ).encode("utf-8")
-    parsed_message = BytesParser(policy=default).parsebytes(header_blob + body)
-    message = cast(EmailMessage, parsed_message)
-
-    if message.get_content_type() != "multipart/form-data" or not message.is_multipart():
-        raise IngestError("Request must be multipart/form-data.")
-
-    parts: dict[str, bytes] = {}
-    uploaded_filenames: dict[str, Optional[str]] = {}
-
-    for part in message.iter_parts():
-        disposition = part.get("Content-Disposition", "")
-        if "form-data" not in disposition:
-            continue
-
-        part_name = part.get_param("name", header="content-disposition")
-        if not part_name:
-            continue
-        if part_name in parts:
-            raise IngestError(f"Duplicate upload part: {part_name}.")
-
-        payload = part.get_payload(decode=True)
-        if isinstance(payload, str):
-            payload_bytes = payload.encode("utf-8")
-        elif payload is None:
-            payload_bytes = b""
-        else:
-            payload_bytes = payload
-
-        parts[part_name] = payload_bytes
-        uploaded_filenames[part_name] = part.get_filename()
-
-    for part_name in REQUIRED_PARTS:
-        if part_name not in parts:
-            raise IngestError(f"Missing required upload part: {part_name}.")
-
-    return parts, uploaded_filenames
 
 
 def write_artifacts(
@@ -273,71 +207,86 @@ def ingest_upload(
     }
 
 
-class BrainIngestServer(ThreadingHTTPServer):
-    def __init__(
-        self,
-        server_address: tuple[str, int],
-        sessions_root: Path,
-    ) -> None:
-        super().__init__(server_address, BrainIngestHandler)
-        self.sessions_root = sessions_root
+def reject_duplicate_form_parts() -> None:
+    seen: set[str] = set()
+    for collection in (request.files, request.form):
+        for part_name, values in collection.lists():
+            if part_name in seen or len(values) > 1:
+                raise IngestError(f"Duplicate upload part: {part_name}.")
+            seen.add(part_name)
 
 
-class BrainIngestHandler(BaseHTTPRequestHandler):
-    server_version = "BrainIngest/0.1"
+def upload_parts_from_request() -> tuple[dict[str, bytes], dict[str, Optional[str]]]:
+    if request.mimetype != "multipart/form-data":
+        raise IngestError("Request must be multipart/form-data.")
 
-    def do_GET(self) -> None:
-        if urlsplit(self.path).path == "/health":
-            self.send_json(HTTPStatus.OK, {"ok": True})
-            return
+    reject_duplicate_form_parts()
 
-        self.send_json(HTTPStatus.NOT_FOUND, {"error": "Not found."})
+    parts: dict[str, bytes] = {}
+    uploaded_filenames: dict[str, Optional[str]] = {}
+    for part_name in REQUIRED_PARTS:
+        uploaded_file = request.files.get(part_name)
+        if uploaded_file is None:
+            raise IngestError(f"Missing required upload part: {part_name}.")
 
-    def do_POST(self) -> None:
-        if urlsplit(self.path).path not in INGEST_PATHS:
-            self.send_json(HTTPStatus.NOT_FOUND, {"error": "Not found."})
-            return
+        parts[part_name] = uploaded_file.read()
+        uploaded_filenames[part_name] = uploaded_file.filename or None
 
+    return parts, uploaded_filenames
+
+
+def json_response(payload: dict[str, Any], status_code: HTTPStatus = HTTPStatus.OK):
+    return jsonify(payload), int(status_code)
+
+
+def create_app(sessions_root: Path) -> Flask:
+    app = Flask(__name__)
+
+    @app.post("/")
+    @app.post("/ingest")
+    def ingest():
         try:
-            content_length = self.read_content_length()
-            body = self.rfile.read(content_length)
-            parts, uploaded_filenames = parse_multipart_upload(
-                self.headers.get("Content-Type", ""),
-                body,
-            )
+            parts, uploaded_filenames = upload_parts_from_request()
             response = ingest_upload(
                 parts,
                 uploaded_filenames,
-                self.client_address[0] if self.client_address else None,
-                cast(BrainIngestServer, self.server).sessions_root,
+                request.remote_addr,
+                sessions_root,
             )
-            self.send_json(HTTPStatus.OK, response)
+            return json_response(response)
         except IngestError as exc:
-            self.send_json(exc.status_code, {"error": exc.detail})
+            return json_response({"error": exc.detail}, exc.status_code)
 
-    def read_content_length(self) -> int:
-        raw_content_length = self.headers.get("Content-Length")
-        if raw_content_length is None:
-            raise IngestError("Content-Length header is required.")
+    @app.errorhandler(HTTPStatus.NOT_FOUND.value)
+    def not_found(_error):
+        return json_response({"error": "Not found."}, HTTPStatus.NOT_FOUND)
 
-        try:
-            content_length = int(raw_content_length)
-        except ValueError:
-            raise IngestError("Content-Length header must be an integer.") from None
+    @app.errorhandler(HTTPStatus.METHOD_NOT_ALLOWED.value)
+    def method_not_allowed(_error):
+        return json_response({"error": "Not found."}, HTTPStatus.NOT_FOUND)
 
-        if content_length < 0:
-            raise IngestError("Content-Length header cannot be negative.")
+    return app
 
-        return content_length
 
-    def send_json(self, status_code: HTTPStatus, payload: dict[str, Any]) -> None:
-        body = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+class BrainIngestServer:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        sessions_root: Path,
+    ) -> None:
+        self.sessions_root = sessions_root
+        self.app = create_app(sessions_root)
+        self._server = make_server(host, port, self.app, threaded=True)
 
-        self.send_response(status_code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+    def serve_forever(self) -> None:
+        self._server.serve_forever()
+
+    def shutdown(self) -> None:
+        self._server.shutdown()
+
+    def server_close(self) -> None:
+        self._server.server_close()
 
 
 def create_server(
@@ -346,7 +295,7 @@ def create_server(
     data_root: Path | str = DATA_ROOT,
 ) -> BrainIngestServer:
     sessions_root = Path(data_root) / "sessions"
-    return BrainIngestServer((host, port), sessions_root)
+    return BrainIngestServer(host, port, sessions_root)
 
 
 def run_server(
@@ -357,7 +306,10 @@ def run_server(
     server = create_server(host, port, data_root)
     print(f"Brain ingest service listening on http://{host}:{port}")
     print(f"Saving artifacts under {server.sessions_root}")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

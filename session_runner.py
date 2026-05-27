@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
-import yaml
+import yaml 
 
 
 
@@ -22,7 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cloud.brain_ingest import create_server 
+from cloud.brain_ingest import create_server  
 
 
 DEFAULT_DATA_ROOT = PROJECT_ROOT / "brain_data"
@@ -263,8 +263,8 @@ def load_session_config(config_path: Path) -> SessionConfig:
     if not nodes_doc:
         raise ConfigError("nodes must contain at least one node.")
 
-    nodes: list[dict[str, Any]] = []
-    seen_labels: set[str] = set()
+    nodes = []
+    seen_labels = set()
     for index, raw_node in enumerate(nodes_doc):
         node = require_mapping(raw_node, f"nodes[{index}]")
         if "count" in node:
@@ -289,7 +289,7 @@ def load_session_config(config_path: Path) -> SessionConfig:
             raise ConfigError("locations must not use count; each label is one host.")
 
         provider = string_value(location, "provider", required=True)
-        row: dict[str, Any] = {
+        row = {
             "label": label,
             "location": location_name,
             "role": role,
@@ -518,7 +518,7 @@ class SshRunner:
 def ec2_client(region: str) -> Any:
     try:
         import boto3
-    except ImportError as exc: 
+    except ImportError as exc:  # pragma: no cover - exercised only on missing deps
         raise SystemExit("boto3 is required: python3 -m pip install boto3") from exc
     return boto3.client("ec2", region_name=region)
 
@@ -581,7 +581,7 @@ class SessionOrchestrator:
             print(f"Launching AWS node {label} in {region}...")
             client = ec2_client(region)
             try:
-                run_args: dict[str, Any] = {
+                run_args = {
                     "MinCount": 1,
                     "MaxCount": 1,
                     "LaunchTemplate": {
@@ -659,13 +659,10 @@ class SessionOrchestrator:
         if not pending:
             return
 
-        clients: dict[str, Any] = {}
+        clients = {}
         for attempt in range(1, self.config.aws.public_ip_attempts + 1):
-            print(
-                f"Checking AWS public IPs "
-                f"({attempt}/{self.config.aws.public_ip_attempts})..."
-            )
-            next_pending: list[dict[str, Any]] = []
+            print(f"Checking AWS public IPs ({attempt}/{self.config.aws.public_ip_attempts})...")
+            next_pending = []
             for node in pending:
                 region = node["aws_region"]
                 clients.setdefault(region, ec2_client(region))
@@ -701,11 +698,8 @@ class SessionOrchestrator:
             return
 
         for attempt in range(1, self.config.aws.bootstrap_attempts + 1):
-            print(
-                f"Checking AWS bootstrap completion "
-                f"({attempt}/{self.config.aws.bootstrap_attempts})..."
-            )
-            next_pending: list[dict[str, Any]] = []
+            print(f"Checking AWS bootstrap completion ({attempt}/{self.config.aws.bootstrap_attempts})...")
+            next_pending = []
             for node in pending:
                 result = self.ssh.run(
                     node["ssh_host"],
@@ -761,7 +755,7 @@ class SessionOrchestrator:
         adversaries = [node for node in nodes if node["role"] == "adversary"]
         non_adversaries = [node for node in nodes if node["role"] != "adversary"]
 
-        started: list[str] = []
+        started = []
         for node in adversaries:
             self.launch_container(node)
             started.append(node["label"])
@@ -839,7 +833,7 @@ class SessionOrchestrator:
         return failed
 
     def gracefully_stop_containers(self, labels: list[str]) -> list[str]:
-        failed: list[str] = []
+        failed = []
         for label in labels:
             node = self.store.node(label)
             self.store.update_node(label, container_graceful_stop_requested_at=utc_now())
@@ -854,7 +848,7 @@ class SessionOrchestrator:
                 check=False,
                 timeout=ADVERSARY_STOP_GRACE_SECONDS + 60,
             )
-            fields: dict[str, Any] = {
+            fields = {
                 "container_graceful_stop_finished_at": utc_now(),
                 "container_graceful_stop_return_code": result.returncode,
             }
@@ -876,7 +870,7 @@ class SessionOrchestrator:
         *,
         timeout: Optional[int] = None,
     ) -> list[str]:
-        failed: list[str] = []
+        failed = []
         for label in labels:
             node = self.store.node(label)
             self.store.update_node(label, container_wait_started_at=utc_now())
@@ -889,7 +883,6 @@ class SessionOrchestrator:
                 timeout=timeout or max(self.config.docker.runtime_seconds + 300, 600),
             )
             output = result.stdout.strip().splitlines()
-            exit_code: Optional[int]
             if result.returncode == 0 and output:
                 try:
                     exit_code = int(output[-1])
@@ -898,7 +891,7 @@ class SessionOrchestrator:
             else:
                 exit_code = None
 
-            fields: dict[str, Any] = {
+            fields = {
                 "container_finished_at": utc_now(),
                 "container_wait_return_code": result.returncode,
             }
@@ -928,7 +921,7 @@ def stop_session(data_root: Path, session_id: str, *, wait: bool = True) -> int:
 
     store.set_status("stopping", stop_requested_at=utc_now())
 
-    stop_failures: list[str] = []
+    stop_failures = []
     for node in store.state.get("nodes", []):
         if not node.get("container_started_at") and not node.get("container_id"):
             continue
@@ -943,7 +936,7 @@ def stop_session(data_root: Path, session_id: str, *, wait: bool = True) -> int:
             check=False,
             timeout=60,
         )
-        fields: dict[str, Any] = {
+        fields = {
             "container_stop_requested_at": utc_now(),
             "container_stop_return_code": result.returncode,
         }
@@ -955,7 +948,7 @@ def stop_session(data_root: Path, session_id: str, *, wait: bool = True) -> int:
         if result.returncode != 0:
             stop_failures.append(label)
 
-    aws_by_region: dict[str, list[str]] = {}
+    aws_by_region = {}
     for node in aws_nodes(store.state.get("nodes", [])):
         if node.get("instance_id"):
             aws_by_region.setdefault(node["aws_region"], []).append(node["instance_id"])
@@ -1018,10 +1011,7 @@ def run_command(config_path: Path) -> int:
     post_container_wait = False
 
     try:
-        print(
-            "Brain ingest service listening on "
-            f"http://{config.ingest.bind_host}:{config.ingest.port}"
-        )
+        print(f"Brain ingest service listening on http://{config.ingest.bind_host}:{config.ingest.port}")
         print(f"Saving artifacts under {config.data_root / 'sessions'}")
         store.set_status("ingest_running", ingest_started_at=utc_now())
         server_thread.start()

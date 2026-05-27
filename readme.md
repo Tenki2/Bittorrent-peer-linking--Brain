@@ -10,16 +10,17 @@ No database, auth, queues, dashboard, Docker setup, or analysis is included yet.
 
 ## Run locally
 
-This service uses only the Python standard library.
+Install Flask, then start the ingest service:
 
 ```bash
+python3 -m pip install flask
 python3 cloud/brain_ingest.py
 ```
 
 By default it listens on:
 
 ```text
-http://127.0.0.1:8000
+http://0.0.0.0:8000
 ```
 
 You can override the host, port, or data directory with environment variables:
@@ -31,7 +32,6 @@ BRAIN_HOST=0.0.0.0 BRAIN_PORT=8000 BRAIN_DATA_ROOT=/tmp/brain_data python3 cloud
 ## Endpoints
 
 ```text
-GET /health
 POST /ingest
 POST /
 ```
@@ -97,5 +97,6 @@ or filename. The service checks `summary_json` first, then falls back to
 
 For each JSON field, `summary_json` is checked first, then `state_json`.
 
-Directory names are sanitized to keep only letters, numbers, `_`, `-`, and `.`.
-Unsafe runs of characters are replaced with `_`.
+Session and client identifiers are used as directory names if they are a single
+path component. Empty values, `.`, `..`, and values containing path separators
+are rejected.
