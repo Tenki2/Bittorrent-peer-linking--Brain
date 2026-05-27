@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
-import yaml # python3 -m pip install pyyaml
+import yaml
 
 
 
@@ -22,7 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cloud.brain_ingest import create_server  # noqa: E402
+from cloud.brain_ingest import create_server 
 
 
 DEFAULT_DATA_ROOT = PROJECT_ROOT / "brain_data"
@@ -518,7 +518,7 @@ class SshRunner:
 def ec2_client(region: str) -> Any:
     try:
         import boto3
-    except ImportError as exc:  # pragma: no cover - exercised only on missing deps
+    except ImportError as exc: 
         raise SystemExit("boto3 is required: python3 -m pip install boto3") from exc
     return boto3.client("ec2", region_name=region)
 
