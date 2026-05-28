@@ -4,7 +4,7 @@ import csv
 import math
 
 
-
+CsvRow = dict[str, str]
 EXCLUDED_FEATURE_COLUMNS = {
     "session_id",
     "victim_label",
