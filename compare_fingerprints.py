@@ -146,9 +146,15 @@ def cosine_similarity(vector_a: list[float], vector_b: list[float]) -> float:
         value_a * value_b
         for value_a, value_b in zip(vector_a, vector_b)
     )
+    # Get the vector for both sessions 
+    # for each value in the vector, multiply the value with the other session's value
+    # then add to a total to get the dot product.
+
 
     magnitude_a = math.sqrt(sum(value * value for value in vector_a))
     magnitude_b = math.sqrt(sum(value * value for value in vector_b))
+    # Multiply each vector value by itself, total that up for the whole vector and then square root the result.
+
 
     if magnitude_a == 0 or magnitude_b == 0:
         return 0.0
@@ -290,12 +296,12 @@ def linkability_report_writer(path: Path, fingerprint_rows: list[CsvRow], pairwi
     if same_scores and different_scores and mean(same_scores) > mean(different_scores):
         lines.append(
             "Same-victim sessions were more similar on average than different-victim sessions."
-            " This supports the hypothesis that adversary-visible timing and flow features can provide cross-session linkability in the tested setup."
+            " This supports the hypothesis that adversary-visible timing and flow features can provide cross-session linkability in the tested harness."
         )
     else:
         lines.append(
             "Same-victim sessions were not clearly more similar than different-victim sessions."
-            " This means the current dataset or selected features are not sufficient to demonstrate a strong linkability claim."
+            " This means the current dataset or selected features are not sufficient to demonstrate a linkability claim."
         )
     lines.append("")
     lines.append(
